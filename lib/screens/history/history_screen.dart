@@ -47,38 +47,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _loadData,
-        child: Column(
-          children: [
-            if (_startDate != null || _endDate != null) _buildFilterChip(),
-            Expanded(
-              child: Consumer<AttendanceProvider>(
-                builder: (context, attendanceProvider, _) {
-                  if (attendanceProvider.isLoading) {
-                    return const Center(
-                      child: CircularProgressIndicator(),
-                    );
-                  }
+        child: Consumer<AttendanceProvider>(
+          builder: (context, attendanceProvider, _) {
+            if (attendanceProvider.isLoading) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
 
-                  final filteredRecords = _getFilteredRecords(
-                    attendanceProvider.attendanceRecords,
-                  );
+            final filteredRecords = _getFilteredRecords(
+              attendanceProvider.attendanceRecords,
+            );
 
-                  if (filteredRecords.isEmpty) {
-                    return _buildEmptyState();
-                  }
-
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: filteredRecords.length,
-                    itemBuilder: (context, index) {
-                      final record = filteredRecords[index];
-                      return _buildAttendanceCard(record);
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                if (_startDate != null || _endDate != null) _buildFilterChip(),
+                if (filteredRecords.isEmpty)
+                  _buildEmptyState()
+                else ...filteredRecords.map(_buildAttendanceCard).toList(),
+              ],
+            );
+          },
         ),
       ),
     );

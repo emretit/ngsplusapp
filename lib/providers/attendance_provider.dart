@@ -34,6 +34,7 @@ class AttendanceProvider extends ChangeNotifier {
       if (currentUser.userType == UserType.employee) {
         print('Loading card_readings for employee ID: ${currentUser.id}');
         
+        // Client-side filtreleme için tüm card_readings'i al, sonra filtrele
         final response = await supabase
             .from('card_readings')
             .select('''
@@ -45,13 +46,20 @@ class AttendanceProvider extends ChangeNotifier {
                 device_location
               )
             ''')
-            .eq('employee_id', int.parse(currentUser.id))
             .order('access_time', ascending: false)
-            .limit(50);
+            .limit(200); // Daha fazla kayıt al, sonra filtrele
 
-        print('Found ${response.length} card_readings records');
+        print('Found ${response.length} total card_readings records');
 
-        _attendanceRecords = (response as List)
+        // Client-side filtreleme: sadece bu çalışanın kayıtları
+        final employeeId = int.parse(currentUser.id);
+        final filteredResponse = (response as List).where((record) => 
+          record['employee_id'] == employeeId
+        ).toList();
+
+        print('Filtered to ${filteredResponse.length} records for employee_id: $employeeId');
+
+        _attendanceRecords = filteredResponse
             .map((record) {
               // Devices tablosundan kapı bilgisini al
               final device = record['devices'];
@@ -74,6 +82,7 @@ class AttendanceProvider extends ChangeNotifier {
               };
               return Attendance.fromJson(formattedRecord);
             })
+            .take(50) // Son 50 kaydı al
             .toList();
             
         print('Parsed ${_attendanceRecords.length} attendance records');
@@ -124,12 +133,17 @@ class AttendanceProvider extends ChangeNotifier {
               device_location
             )
           ''')
-          .eq('employee_id', int.parse(currentUser.id))
           .gte('access_time', startOfDay.toIso8601String())
           .lt('access_time', endOfDay.toIso8601String())
           .order('access_time', ascending: true);
 
-      response = (cardReadings as List).map((record) {
+      // Client-side filtreleme: sadece bu çalışanın kayıtları
+      final employeeId = int.parse(currentUser.id);
+      final filteredCardReadings = (cardReadings as List).where((record) => 
+        record['employee_id'] == employeeId
+      ).toList();
+
+      response = filteredCardReadings.map((record) {
         // Devices tablosundan kapı bilgisini al
         final device = record['devices'];
         final doorName = device != null 
@@ -210,16 +224,20 @@ class AttendanceProvider extends ChangeNotifier {
 
       // Çalışanlar için card_readings tablosuna kaydet
       if (currentUser.userType == UserType.employee) {
+        // Employee ID'yi string'den int'e çevir - bu zaten employee tablosundaki gerçek ID
+        final employeeId = int.parse(currentUser.id);
+        
         final response = await supabase.from('card_readings').insert({
           'card_no': qrData,
           'status': 'authorized',
           'access_granted': true,
-          'employee_id': int.parse(currentUser.id),
+          'employee_id': employeeId,
           'employee_name': '${currentUser.firstName} ${currentUser.lastName}',
           'device_id': 1, // Ana Giriş QR Okuyucu
           'device_name': 'Mobile App',
           'device_location': 'Ana Giriş',
           'raw_data': type,
+          'project_id': 1, // Ana proje ID'si
         }).select();
 
         if (response.isNotEmpty) {
@@ -229,14 +247,39 @@ class AttendanceProvider extends ChangeNotifier {
           return true;
         }
       } else {
-        // Adminler için card_readings tablosuna kaydet
+        // Adminler için önce employee_auth tablosundan employee_id'yi al
+        final authUserId = _authProvider?.supabaseUser?.id;
+        if (authUserId == null) return false;
+        
+        // Auth user'ın employee_auth kaydından employee_id'yi al
+        final employeeAuthResponse = await supabase
+            .from('employee_auth')
+            .select('employee_id, employee:employees(first_name, last_name)')
+            .eq('id', authUserId)
+            .maybeSingle();
+
+        int? employeeId;
+        String employeeName = '${currentUser.firstName} ${currentUser.lastName}';
+        
+        if (employeeAuthResponse != null) {
+          employeeId = employeeAuthResponse['employee_id'];
+          final employeeData = employeeAuthResponse['employee'];
+          if (employeeData != null) {
+            employeeName = '${employeeData['first_name']} ${employeeData['last_name']}';
+          }
+        }
+        
         final response = await supabase.from('card_readings').insert({
           'card_no': qrData,
           'status': 'authorized',
           'access_granted': true,
-          'employee_name': '${currentUser.firstName} ${currentUser.lastName}',
+          'employee_id': employeeId, // Null olabilir, admin için
+          'employee_name': employeeName,
+          'device_id': 1,
           'device_name': 'Mobile App',
-          'device_location': 'Main Entrance',
+          'device_location': 'Ana Giriş',
+          'raw_data': type,
+          'project_id': 1,
         }).select();
 
         if (response.isNotEmpty) {
@@ -288,8 +331,6 @@ class AttendanceProvider extends ChangeNotifier {
             Duration(hours: record.timestamp.hour, minutes: record.timestamp.minute) > lateTime)
         .length;
   }
-
-
 
   void clearError() {
     _errorMessage = null;

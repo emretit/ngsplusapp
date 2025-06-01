@@ -106,34 +106,55 @@ class AuthProvider extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      final response = await supabase.functions.invoke(
-        'employee-login',
-        body: {
-          'email': email,
-          'password': password,
-        },
-      );
+      print('DEBUG: Employee login attempt - Email: $email');
 
-      if (response.status == 200 && response.data['user'] != null) {
-        final userData = response.data['user'];
-        _currentUser = AuthUser(
-          id: userData['id'].toString(),
-          email: userData['email'],
-          firstName: userData['name']?.split(' ')[0],
-          lastName: userData['name']?.split(' ').length > 1 ? userData['name']?.split(' ')[1] : '',
-          userType: UserType.employee,
-        );
+      // Direkt employee_auth tablosundan sorgula
+      final employeeAuthResponse = await supabase
+          .from('employee_auth')
+          .select('id, employee_id, employee:employees(first_name, last_name, email, is_active)')
+          .eq('email', email)
+          .eq('password_hash', password) // Gerçek üretimde hash karşılaştırması yapılmalı
+          .maybeSingle();
+
+      print('DEBUG: Employee auth response: $employeeAuthResponse');
+
+      if (employeeAuthResponse != null) {
+        final employeeData = employeeAuthResponse['employee'];
+        print('DEBUG: Employee data: $employeeData');
         
-        _isLoading = false;
-        notifyListeners();
-        return true;
+        if (employeeData != null && employeeData['is_active'] == true) {
+          _currentUser = AuthUser(
+            id: employeeAuthResponse['employee_id'].toString(), // Employee ID'yi kullan
+            email: employeeData['email'],
+            firstName: employeeData['first_name'],
+            lastName: employeeData['last_name'],
+            userType: UserType.employee,
+          );
+          
+          print('DEBUG: Login successful for employee ID: ${employeeAuthResponse['employee_id']}');
+          
+          // Last login zamanını güncelle
+          await supabase
+              .from('employee_auth')
+              .update({'last_login': DateTime.now().toIso8601String()})
+              .eq('id', employeeAuthResponse['id']);
+          
+          _isLoading = false;
+          notifyListeners();
+          return true;
+        } else {
+          print('DEBUG: Employee data null or inactive');
+        }
       } else {
-        _isLoading = false;
-        _errorMessage = 'Geçersiz e-posta veya şifre';
-        notifyListeners();
-        return false;
+        print('DEBUG: No employee auth record found');
       }
+      
+      _isLoading = false;
+      _errorMessage = 'Geçersiz e-posta veya şifre';
+      notifyListeners();
+      return false;
     } catch (error) {
+      print('DEBUG: Employee login error: $error');
       _isLoading = false;
       _errorMessage = 'Çalışan girişi başarısız: ${error.toString()}';
       notifyListeners();

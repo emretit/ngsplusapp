@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../providers/attendance_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../models/attendance.dart';
+import '../../models/qr_code_model.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -13,307 +14,308 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  DateTime? _startDate;
-  DateTime? _endDate;
+  DateTime? _selectedDate;
+  String? _selectedDevice;
+  List<String> _deviceList = [];
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadData();
-    });
+    _loadData();
   }
 
   Future<void> _loadData() async {
-    final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
-    await attendanceProvider.loadAttendanceRecords();
+    setState(() => _isLoading = true);
+    
+    try {
+      final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
+      await attendanceProvider.loadAttendanceRecords();
+      
+      // Benzersiz cihaz listesini oluştur
+      final devices = attendanceProvider.attendanceRecords
+          .where((record) => record.deviceInfo != null)
+          .map((record) => record.formattedDeviceInfo)
+          .toSet()
+          .toList();
+      
+      setState(() {
+        _deviceList = devices;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Veriler yüklenirken hata oluştu: $e')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
     return Scaffold(
-      backgroundColor: isDark ? AppTheme.darkBackground : Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Yoklama Geçmişi'),
-        backgroundColor: Colors.transparent,
+        title: const Text('Geçmiş'),
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list),
-            onPressed: _showDateFilterDialog,
+            onPressed: _showFilterDialog,
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        child: Consumer<AttendanceProvider>(
-          builder: (context, attendanceProvider, _) {
-            if (attendanceProvider.isLoading) {
-              return const Center(
-                child: CircularProgressIndicator(),
-              );
-            }
-
-            final filteredRecords = _getFilteredRecords(
-              attendanceProvider.attendanceRecords,
-            );
-
-            return ListView(
-              padding: const EdgeInsets.all(16),
-              physics: const AlwaysScrollableScrollPhysics(),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
               children: [
-                if (_startDate != null || _endDate != null) _buildFilterChip(),
-                if (filteredRecords.isEmpty)
-                  _buildEmptyState()
-                else ...filteredRecords.map(_buildAttendanceCard).toList(),
+                // Filtre çipleri
+                if (_selectedDate != null || _selectedDevice != null)
+                  Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Wrap(
+                      spacing: 8,
+                      children: [
+                        if (_selectedDate != null)
+                          Chip(
+                            label: Text(
+                              DateFormat('dd.MM.yyyy').format(_selectedDate!),
+                            ),
+                            onDeleted: () {
+                              setState(() => _selectedDate = null);
+                            },
+                          ),
+                        if (_selectedDevice != null)
+                          Chip(
+                            label: Text(_selectedDevice!),
+                            onDeleted: () {
+                              setState(() => _selectedDevice = null);
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
+                // Kayıt listesi
+                Expanded(
+                  child: Consumer<AttendanceProvider>(
+                    builder: (context, provider, child) {
+                      final records = _getFilteredRecords();
+                      
+                      if (records.isEmpty) {
+                        return const Center(
+                          child: Text('Kayıt bulunamadı'),
+                        );
+                      }
+
+                      return ListView.builder(
+                        itemCount: records.length,
+                        itemBuilder: (context, index) {
+                          final record = records[index];
+                          return _buildAttendanceCard(record);
+                        },
+                      );
+                    },
+                  ),
+                ),
               ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFilterChip() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      child: Wrap(
-        spacing: 8,
-        children: [
-          if (_startDate != null || _endDate != null)
-            FilterChip(
-              label: Text(_getFilterText()),
-              onSelected: (_) {},
-              deleteIcon: const Icon(Icons.close, size: 18),
-              onDeleted: () {
-                setState(() {
-                  _startDate = null;
-                  _endDate = null;
-                });
-              },
-              backgroundColor: AppTheme.primaryBurgundy.withValues(alpha: 0.1),
-              labelStyle: TextStyle(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? AppTheme.primaryBurgundy2
-                    : AppTheme.primaryBurgundy,
-              ),
             ),
-        ],
-      ),
     );
   }
 
-  String _getFilterText() {
-    if (_startDate != null && _endDate != null) {
-      return '${DateFormat('dd/MM/yyyy').format(_startDate!)} - ${DateFormat('dd/MM/yyyy').format(_endDate!)}';
-    } else if (_startDate != null) {
-      return '${DateFormat('dd/MM/yyyy').format(_startDate!)} itibaren';
-    } else if (_endDate != null) {
-      return '${DateFormat('dd/MM/yyyy').format(_endDate!)} tarihine kadar';
+  List<Attendance> _getFilteredRecords() {
+    final attendanceProvider = Provider.of<AttendanceProvider>(context);
+    var records = attendanceProvider.attendanceRecords;
+
+    if (_selectedDate != null) {
+      final startOfDay = DateTime(
+        _selectedDate!.year,
+        _selectedDate!.month,
+        _selectedDate!.day,
+      );
+      final endOfDay = startOfDay.add(const Duration(days: 1));
+
+      records = records.where((record) {
+        return record.timestamp.isAfter(startOfDay) && 
+               record.timestamp.isBefore(endOfDay);
+      }).toList();
     }
-    return '';
-  }
 
-  List<Attendance> _getFilteredRecords(List<Attendance> records) {
-    return records.where((record) {
-      if (_startDate != null && record.timestamp.isBefore(_startDate!)) {
-        return false;
-      }
-      if (_endDate != null && record.timestamp.isAfter(_endDate!.add(const Duration(days: 1)))) {
-        return false;
-      }
-      return true;
-    }).toList();
-  }
+    if (_selectedDevice != null) {
+      records = records.where((record) {
+        return record.formattedDeviceInfo == _selectedDevice;
+      }).toList();
+    }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.history,
-            size: 80,
-            color: Colors.grey[400],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Henüz yoklama kaydı yok',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: Colors.grey[600],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'İlk yoklamanızı almak için QR kod tarayın',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Colors.grey[500],
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
+    return records;
   }
 
   Widget _buildAttendanceCard(Attendance record) {
     final isCheckIn = record.type == 'check_in';
-    final color = isCheckIn ? Colors.green : Colors.red;
-    final icon = isCheckIn ? Icons.login : Icons.logout;
-    final typeText = isCheckIn ? 'Giriş' : 'Çıkış';
+    final formattedTime = DateFormat('HH:mm').format(record.timestamp);
+    final formattedDate = DateFormat('dd.MM.yyyy').format(record.timestamp);
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: isCheckIn ? Colors.green : Colors.red,
+          child: Icon(
+            isCheckIn ? Icons.login : Icons.logout,
+            color: Colors.white,
+          ),
+        ),
+        title: Text(
+          isCheckIn ? 'Giriş' : 'Çıkış',
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
+            Text('$formattedDate $formattedTime'),
+            if (record.deviceInfo != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                record.formattedDeviceInfo,
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 12,
+                ),
               ),
-              child: Icon(
-                icon,
-                color: color,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        typeText,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: color,
-                        ),
-                      ),
-                      Text(
-                        DateFormat('HH:mm').format(record.timestamp),
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        record.doorName.isNotEmpty ? record.doorName : 'Ana Giriş',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      Text(
-                        DateFormat('dd/MM/yyyy').format(record.timestamp),
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+            ],
           ],
+        ),
+        trailing: IconButton(
+          icon: const Icon(Icons.info_outline),
+          onPressed: () => _showRecordDetails(record),
         ),
       ),
     );
   }
 
-  void _showDateFilterDialog() {
+  void _showRecordDetails(Attendance record) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Tarih Filtresi'),
+        title: Text(record.type == 'check_in' ? 'Giriş Detayları' : 'Çıkış Detayları'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Tarih: ${DateFormat('dd.MM.yyyy').format(record.timestamp)}'),
+            Text('Saat: ${DateFormat('HH:mm:ss').format(record.timestamp)}'),
+            if (record.deviceInfo != null) ...[
+              const SizedBox(height: 8),
+              const Text('Cihaz Bilgileri:'),
+              Text('Cihaz: ${record.deviceInfo!['device_name']}'),
+              Text('Konum: ${record.deviceInfo!['location']}'),
+              if (record.deviceInfo!['timestamp'] != null)
+                Text('Oluşturulma: ${DateTime.parse(record.deviceInfo!['timestamp']).toString()}'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showFilterDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Filtrele'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Tarih seçici
             ListTile(
-              title: const Text('Başlangıç Tarihi'),
+              title: const Text('Tarih'),
               subtitle: Text(
-                _startDate != null
-                    ? DateFormat('dd/MM/yyyy').format(_startDate!)
-                    : 'Seçilmedi',
+                _selectedDate != null
+                    ? DateFormat('dd.MM.yyyy').format(_selectedDate!)
+                    : 'Tarih seçilmedi',
               ),
               trailing: const Icon(Icons.calendar_today),
-              onTap: () => _selectStartDate(),
+              onTap: () async {
+                final date = await showDatePicker(
+                  context: context,
+                  initialDate: _selectedDate ?? DateTime.now(),
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime.now(),
+                );
+                if (date != null) {
+                  setState(() => _selectedDate = date);
+                }
+                Navigator.pop(context);
+              },
             ),
-            ListTile(
-              title: const Text('Bitiş Tarihi'),
-              subtitle: Text(
-                _endDate != null
-                    ? DateFormat('dd/MM/yyyy').format(_endDate!)
-                    : 'Seçilmedi',
+            // Cihaz seçici
+            if (_deviceList.isNotEmpty)
+              ListTile(
+                title: const Text('Cihaz'),
+                subtitle: Text(_selectedDevice ?? 'Cihaz seçilmedi'),
+                trailing: const Icon(Icons.devices),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showDeviceSelectionDialog();
+                },
               ),
-              trailing: const Icon(Icons.calendar_today),
-              onTap: () => _selectEndDate(),
-            ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () {
               setState(() {
-                _startDate = null;
-                _endDate = null;
+                _selectedDate = null;
+                _selectedDevice = null;
               });
               Navigator.pop(context);
             },
-            child: const Text('Temizle'),
+            child: const Text('Filtreleri Temizle'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Kapat'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {});
-            },
-            child: const Text('Uygula'),
+            child: const Text('Tamam'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _selectStartDate() async {
-    final picked = await showDatePicker(
+  void _showDeviceSelectionDialog() {
+    showDialog(
       context: context,
-      initialDate: _startDate ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
+      builder: (context) => AlertDialog(
+        title: const Text('Cihaz Seç'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _deviceList.length,
+            itemBuilder: (context, index) {
+              final device = _deviceList[index];
+              return ListTile(
+                title: Text(device),
+                selected: device == _selectedDevice,
+                onTap: () {
+                  setState(() => _selectedDevice = device);
+                  Navigator.pop(context);
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('İptal'),
+          ),
+        ],
+      ),
     );
-    if (picked != null) {
-      setState(() {
-        _startDate = picked;
-      });
-    }
-  }
-
-  Future<void> _selectEndDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _endDate ?? DateTime.now(),
-      firstDate: _startDate ?? DateTime(2020),
-      lastDate: DateTime.now(),
-    );
-    if (picked != null) {
-      setState(() {
-        _endDate = picked;
-      });
-    }
   }
 } 

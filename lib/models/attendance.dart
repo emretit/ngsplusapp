@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:convert' show utf8;
+import 'dart:convert' show base64Decode;
+
 class Attendance {
   final String id;
   final String userId;
@@ -6,8 +10,8 @@ class Attendance {
   final String doorName;
   final DateTime? checkInTime;
   final DateTime? checkOutTime;
-  final String? employeeName;
-  final String? status;
+  final String? qrData; // QR kod verisi
+  final Map<String, dynamic>? deviceInfo; // Cihaz bilgileri
 
   Attendance({
     required this.id,
@@ -17,8 +21,8 @@ class Attendance {
     required this.doorName,
     this.checkInTime,
     this.checkOutTime,
-    this.employeeName,
-    this.status,
+    this.qrData,
+    this.deviceInfo,
   });
 
   // UTC tarihini Türkiye saatine çeviren yardımcı metod
@@ -29,70 +33,41 @@ class Attendance {
   }
 
   factory Attendance.fromJson(Map<String, dynamic> json) {
-    // PDKS records için
-    if (json.containsKey('date') && json.containsKey('entry_time')) {
-      final date = json['date'] != null ? DateTime.parse(json['date']) : DateTime.now();
-      final entryTime = json['entry_time'];
-      final exitTime = json['exit_time'];
-      
-      DateTime? checkInDateTime;
-      DateTime? checkOutDateTime;
-      
-      if (entryTime != null) {
-        final timeParts = entryTime.split(':');
-        checkInDateTime = DateTime(
-          date.year, 
-          date.month, 
-          date.day,
-          int.parse(timeParts[0]),
-          int.parse(timeParts[1]),
-          timeParts.length > 2 ? int.parse(timeParts[2]) : 0,
-        );
+    // QR kod verisini parse et
+    Map<String, dynamic>? parsedDeviceInfo;
+    if (json['qr_data'] != null) {
+      try {
+        final decodedData = utf8.decode(base64Decode(json['qr_data']));
+        final data = jsonDecode(decodedData) as Map<String, dynamic>;
+        parsedDeviceInfo = {
+          'device_id': data['device_id'],
+          'location': data['location'],
+          'device_name': data['device_name'],
+          'timestamp': data['timestamp'],
+          if (data.containsKey('additional_data')) 
+            'additional_data': data['additional_data'],
+        };
+      } catch (e) {
+        print('QR kod verisi parse edilemedi: $e');
       }
-      
-      if (exitTime != null) {
-        final timeParts = exitTime.split(':');
-        checkOutDateTime = DateTime(
-          date.year, 
-          date.month, 
-          date.day,
-          int.parse(timeParts[0]),
-          int.parse(timeParts[1]),
-          timeParts.length > 2 ? int.parse(timeParts[2]) : 0,
-        );
-      }
-      
-      return Attendance(
-        id: json['id']?.toString() ?? '',
-        userId: json['employee_id']?.toString() ?? '',
-        type: entryTime != null ? 'check_in' : 'check_out',
-        timestamp: checkInDateTime ?? checkOutDateTime ?? date,
-        doorName: 'Main Entrance',
-        checkInTime: checkInDateTime,
-        checkOutTime: checkOutDateTime,
-        employeeName: '${json['employee_first_name'] ?? ''} ${json['employee_last_name'] ?? ''}',
-        status: json['status'],
-      );
     }
-    
-    // Card readings için (employee-records fonksiyonundan gelen format)
-    final timestampString = json['created_at'] ?? json['access_time'] ?? DateTime.now().toIso8601String();
-    final turkeyTimestamp = _parseToTurkeyTime(timestampString);
-    
+
     return Attendance(
       id: json['id']?.toString() ?? '',
-      userId: json['user_id'] ?? json['employee_id']?.toString() ?? '',
+      userId: json['user_id']?.toString() ?? '',
       type: json['type'] ?? 'check_in',
-      timestamp: turkeyTimestamp,
-      doorName: json['door_name'] ?? json['device_location'] ?? 'Ana Giriş',
+      timestamp: json['created_at'] != null 
+          ? DateTime.parse(json['created_at'])
+          : DateTime.now(),
+      doorName: json['door_name'] ?? 'Bilinmeyen Kapı',
       checkInTime: json['check_in_time'] != null 
-          ? _parseToTurkeyTime(json['check_in_time']) 
+          ? DateTime.parse(json['check_in_time'])
           : null,
       checkOutTime: json['check_out_time'] != null 
-          ? _parseToTurkeyTime(json['check_out_time']) 
+          ? DateTime.parse(json['check_out_time'])
           : null,
-      employeeName: json['employee_name'],
-      status: json['status'],
+      qrData: json['qr_data'],
+      deviceInfo: parsedDeviceInfo,
     );
   }
 
@@ -105,8 +80,38 @@ class Attendance {
       'door_name': doorName,
       'check_in_time': checkInTime?.toIso8601String(),
       'check_out_time': checkOutTime?.toIso8601String(),
-      'employee_name': employeeName,
-      'status': status,
+      'qr_data': qrData,
+      'device_info': deviceInfo,
     };
+  }
+
+  // Cihaz bilgilerini formatla
+  String get formattedDeviceInfo {
+    if (deviceInfo == null) return doorName;
+    
+    final deviceName = deviceInfo!['device_name'] ?? 'Bilinmeyen Cihaz';
+    final location = deviceInfo!['location'] ?? 'Bilinmeyen Konum';
+    
+    return '$deviceName ($location)';
+  }
+
+  // QR kod verisini formatla
+  String get formattedQRData {
+    if (qrData == null) return 'QR Kod Yok';
+    
+    try {
+      final decodedData = utf8.decode(base64Decode(qrData!));
+      final data = jsonDecode(decodedData) as Map<String, dynamic>;
+      
+      final deviceName = data['device_name'] ?? 'Bilinmeyen Cihaz';
+      final location = data['location'] ?? 'Bilinmeyen Konum';
+      final timestamp = data['timestamp'] != null 
+          ? DateTime.parse(data['timestamp'])
+          : null;
+      
+      return '$deviceName - $location${timestamp != null ? ' (${timestamp.toString()})' : ''}';
+    } catch (e) {
+      return 'QR Kod Formatı Geçersiz';
+    }
   }
 } 

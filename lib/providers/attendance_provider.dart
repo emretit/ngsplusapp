@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config/supabase_config.dart';
 import '../models/attendance.dart';
+import '../models/qr_code_model.dart';
 import 'auth_provider.dart';
 
 class AttendanceProvider extends ChangeNotifier {
@@ -79,6 +80,7 @@ class AttendanceProvider extends ChangeNotifier {
                 'device_location': record['device_location'],
                 'employee_name': record['employee_name'],
                 'status': record['status'],
+                'qr_data': record['card_no'], // QR kod verisini ekle
               };
               return Attendance.fromJson(formattedRecord);
             })
@@ -161,6 +163,7 @@ class AttendanceProvider extends ChangeNotifier {
           'device_location': record['device_location'],
           'employee_name': record['employee_name'],
           'status': record['status'],
+          'qr_data': record['card_no'], // QR kod verisini ekle
         };
       }).toList();
     } else {
@@ -214,13 +217,25 @@ class AttendanceProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> recordAttendance(String qrData, String type) async {
+  Future<bool> recordAttendance(
+    String qrData, 
+    String type, {
+    int? deviceId,
+    String? location,
+  }) async {
     try {
       _isLoading = true;
       notifyListeners();
 
       final currentUser = _authProvider?.currentUser;
       if (currentUser == null) return false;
+
+      // QR kod verisini doğrula
+      final parsedData = QRCodeGenerator.parseQRData(qrData);
+      if (!parsedData['is_valid']) {
+        _errorMessage = 'Geçersiz QR kod formatı';
+        return false;
+      }
 
       // Çalışanlar için card_readings tablosuna kaydet
       if (currentUser.userType == UserType.employee) {
@@ -233,9 +248,9 @@ class AttendanceProvider extends ChangeNotifier {
           'access_granted': true,
           'employee_id': employeeId,
           'employee_name': '${currentUser.firstName} ${currentUser.lastName}',
-          'device_id': 1, // Ana Giriş QR Okuyucu
+          'device_id': deviceId ?? parsedData['device_id'] ?? 1,
           'device_name': 'Mobile App',
-          'device_location': 'Ana Giriş',
+          'device_location': location ?? parsedData['location'] ?? 'Ana Giriş',
           'raw_data': type,
           'project_id': 1, // Ana proje ID'si
         }).select();
@@ -275,9 +290,9 @@ class AttendanceProvider extends ChangeNotifier {
           'access_granted': true,
           'employee_id': employeeId, // Null olabilir, admin için
           'employee_name': employeeName,
-          'device_id': 1,
+          'device_id': deviceId ?? parsedData['device_id'] ?? 1,
           'device_name': 'Mobile App',
-          'device_location': 'Ana Giriş',
+          'device_location': location ?? parsedData['location'] ?? 'Ana Giriş',
           'raw_data': type,
           'project_id': 1,
         }).select();

@@ -52,6 +52,28 @@ class Attendance {
       }
     }
 
+    // Eğer QR koddan device info yoksa, door_name'den oluştur
+    if (parsedDeviceInfo == null && json['door_name'] != null) {
+      final doorName = json['door_name'] as String;
+      // "Cihaz Adı (Konum)" formatını parse et
+      if (doorName.contains('(') && doorName.contains(')')) {
+        final parts = doorName.split('(');
+        final deviceName = parts[0].trim();
+        final location = parts[1].replaceAll(')', '').trim();
+        parsedDeviceInfo = {
+          'device_name': deviceName,
+          'location': location,
+          'source': 'door_name',
+        };
+      } else {
+        parsedDeviceInfo = {
+          'device_name': doorName,
+          'location': 'Bilinmeyen Konum',
+          'source': 'door_name',
+        };
+      }
+    }
+
     return Attendance(
       id: json['id']?.toString() ?? '',
       userId: json['user_id']?.toString() ?? '',
@@ -87,12 +109,19 @@ class Attendance {
 
   // Cihaz bilgilerini formatla
   String get formattedDeviceInfo {
-    if (deviceInfo == null) return doorName;
+    // Önce deviceInfo'yu kontrol et
+    if (deviceInfo != null) {
+      final deviceName = deviceInfo!['device_name'] ?? 'Bilinmeyen Cihaz';
+      final location = deviceInfo!['location'] ?? 'Bilinmeyen Konum';
+      return '$deviceName ($location)';
+    }
     
-    final deviceName = deviceInfo!['device_name'] ?? 'Bilinmeyen Cihaz';
-    final location = deviceInfo!['location'] ?? 'Bilinmeyen Konum';
+    // DeviceInfo yoksa doorName'i kullan
+    if (doorName.isNotEmpty && doorName != 'Bilinmeyen Kapı') {
+      return doorName;
+    }
     
-    return '$deviceName ($location)';
+    return 'Bilinmeyen Cihaz (Bilinmeyen Konum)';
   }
 
   // QR kod verisini formatla

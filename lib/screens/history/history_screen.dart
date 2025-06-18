@@ -151,42 +151,78 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final isCheckIn = record.type == 'check_in';
     final formattedTime = DateFormat('HH:mm').format(record.timestamp);
     final formattedDate = DateFormat('dd.MM.yyyy').format(record.timestamp);
+    final deviceInfoText = record.formattedDeviceInfo;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: isCheckIn ? Colors.green : Colors.red,
-          child: Icon(
-            isCheckIn ? Icons.login : Icons.logout,
-            color: Colors.white,
-          ),
-        ),
-        title: Text(
-          isCheckIn ? 'Giriş' : 'Çıkış',
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
           children: [
-            Text('$formattedDate $formattedTime'),
-            if (record.deviceInfo != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                record.formattedDeviceInfo,
-                style: const TextStyle(
-                  color: Colors.grey,
-                  fontSize: 12,
-                ),
+            // Sol taraf - İkon
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: isCheckIn ? Colors.green : Colors.red,
+                borderRadius: BorderRadius.circular(25),
               ),
-            ],
+              child: Icon(
+                isCheckIn ? Icons.login : Icons.logout,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 16),
+            
+            // Orta kısım - Ana bilgiler
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Giriş/Çıkış başlığı
+                  Text(
+                    isCheckIn ? 'Giriş' : 'Çıkış',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  
+                  // Cihaz ismi ve konumu
+                  Text(
+                    deviceInfoText,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  
+                  // Tarih ve saat
+                  Text(
+                    '$formattedDate $formattedTime',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Sağ taraf - Detay butonu
+            IconButton(
+              icon: const Icon(Icons.info_outline),
+              onPressed: () => _showRecordDetails(record),
+            ),
           ],
-        ),
-        trailing: IconButton(
-          icon: const Icon(Icons.info_outline),
-          onPressed: () => _showRecordDetails(record),
         ),
       ),
     );

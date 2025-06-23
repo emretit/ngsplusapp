@@ -85,22 +85,30 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               // NGS+ Logo
               Container(
-                width: 50,
-                height: 50,
+                width: 60,
+                height: 60,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: AppTheme.primaryBurgundy.withValues(alpha: 0.2),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+                      color: AppTheme.primaryBurgundy.withValues(alpha: 0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                    BoxShadow(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      blurRadius: 6,
+                      offset: const Offset(0, -2),
                     ),
                   ],
                 ),
-                child: SvgPicture.asset(
-                  'assets/images/ngs_logo.svg',
-                  width: 50,
-                  height: 50,
+                child: ClipOval(
+                  child: SvgPicture.asset(
+                    'assets/images/ngs_logo.svg',
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
               const SizedBox(width: 16),

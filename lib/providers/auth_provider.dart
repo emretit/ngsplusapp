@@ -27,6 +27,7 @@ class AuthProvider extends ChangeNotifier {
   String? _errorMessage;
 
   User? get supabaseUser => _supabaseUser;
+  User? get user => _supabaseUser; // QR scanner için uyumluluk
   AuthUser? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;

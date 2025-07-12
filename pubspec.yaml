@@ -16,7 +16,10 @@ dependencies:
   supabase_flutter: ^2.5.6
   
   # QR Code scanning
-  qr_code_scanner: ^1.0.1
+  mobile_scanner: ^5.0.0
+  
+  # QR Code generation
+  qr_flutter: ^4.1.0
   
   # Local storage
   shared_preferences: ^2.2.3

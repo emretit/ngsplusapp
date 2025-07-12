@@ -81,8 +81,7 @@ class AttendanceProvider extends ChangeNotifier {
                   devices!card_readings_device_id_fkey (
                     id,
                     name,
-                    location,
-                    device_location
+                    description
                   )
                 ''')
                 .eq('employee_id', employeeId)
@@ -97,7 +96,7 @@ class AttendanceProvider extends ChangeNotifier {
                     // Devices tablosundan kapı bilgisini al
                     final device = record['devices'];
                     final doorName = device != null 
-                        ? '${device['name']} (${device['device_location'] ?? device['location']})'
+                        ? '${device['name']}${device['description'] != null ? ' - ${device['description']}' : ''}'
                         : 'Bilinmeyen Kapı';
                     
                     // raw_data'dan giriş/çıkış tipini belirle
@@ -193,8 +192,7 @@ class AttendanceProvider extends ChangeNotifier {
             devices!card_readings_device_id_fkey (
               id,
               name,
-              location,
-              device_location
+              description
             )
           ''')
           .eq('employee_id', employeeId)  // Doğrudan veritabanında filtrele
@@ -206,7 +204,7 @@ class AttendanceProvider extends ChangeNotifier {
         // Devices tablosundan kapı bilgisini al
         final device = record['devices'];
         final doorName = device != null 
-            ? '${device['name']} (${device['device_location'] ?? device['location']})'
+            ? '${device['name']}${device['description'] != null ? ' - ${device['description']}' : ''}'
             : 'Bilinmeyen Kapı';
             
         // raw_data'dan giriş/çıkış tipini belirle
@@ -297,29 +295,75 @@ class AttendanceProvider extends ChangeNotifier {
       if (currentUser == null) return false;
 
       // QR kod verisini doğrula
+      print('DEBUG: Raw QR data: $qrData');
       final parsedData = QRCodeGenerator.parseQRData(qrData);
+      print('DEBUG: Parsed QR data: $parsedData');
+      
       if (!parsedData['is_valid']) {
-        _errorMessage = 'Geçersiz QR kod formatı';
+        _errorMessage = 'Geçersiz QR kod formatı: ${parsedData['error'] ?? 'Bilinmeyen hata'}';
         return false;
       }
+      
+      print('DEBUG: About to insert into card_readings table');
 
       // Çalışanlar için card_readings tablosuna kaydet
       if (currentUser.userType == UserType.employee) {
         // Employee ID'yi string'den int'e çevir - bu zaten employee tablosundaki gerçek ID
         final employeeId = int.parse(currentUser.id);
         
-        final response = await supabase.from('card_readings').insert({
+        // Device ID'yi serial number'dan bul
+        int finalDeviceId = 1; // Varsayılan device_id
+        
+        // QR kod verisindeki büyük sayı serial number olabilir
+        String? serialNumber;
+        if (parsedData['device_id'] != null) {
+          serialNumber = parsedData['device_id'].toString();
+        } else if (qrData.isNotEmpty) {
+          // QR kod direkt serial number olabilir
+          serialNumber = qrData;
+        }
+        
+        print('DEBUG: Looking for serial number: $serialNumber');
+        
+        // Serial number'dan device_id'yi bul
+        if (serialNumber != null && serialNumber.isNotEmpty) {
+          try {
+            final deviceResponse = await supabase
+                .from('devices')
+                .select('id, name, device_serial')
+                .eq('device_serial', serialNumber)
+                .eq('is_active', true)
+                .maybeSingle();
+            
+            if (deviceResponse != null) {
+              finalDeviceId = deviceResponse['id'];
+              print('DEBUG: Found device: ${deviceResponse['name']} with ID: $finalDeviceId');
+            } else {
+              print('DEBUG: Serial number not found in devices table, using default device_id: 1');
+            }
+          } catch (e) {
+            print('DEBUG: Error looking up device: $e, using default device_id: 1');
+          }
+        }
+        
+        print('DEBUG: Final device_id: $finalDeviceId');
+        print('DEBUG: Employee ID = $employeeId');
+        print('DEBUG: Employee Name = ${currentUser.firstName} ${currentUser.lastName}');
+
+        final insertData = {
           'card_no': qrData,
-          'status': 'authorized',
-          'access_granted': true,
+          'access_status': 'izin_verildi',
           'employee_id': employeeId,
           'employee_name': '${currentUser.firstName} ${currentUser.lastName}',
-          'device_id': deviceId ?? parsedData['device_id'] ?? 1,
-          'device_name': 'Mobile App',
-          'device_location': location ?? parsedData['location'] ?? 'Ana Giriş',
+          'device_id': finalDeviceId,
+          'access_time': DateTime.now().toIso8601String(),
           'raw_data': type,
           'project_id': 1, // Ana proje ID'si
-        }).select();
+        };
+        
+        print('DEBUG: Insert data: $insertData');
+        
+        final response = await supabase.from('card_readings').insert(insertData).select();
 
         if (response.isNotEmpty) {
           await loadAttendanceRecords();
@@ -350,15 +394,50 @@ class AttendanceProvider extends ChangeNotifier {
           }
         }
         
+        // Device ID'yi serial number'dan bul
+        int finalDeviceId = 1; // Varsayılan device_id
+        
+        // QR kod verisindeki büyük sayı serial number olabilir
+        String? serialNumber;
+        if (parsedData['device_id'] != null) {
+          serialNumber = parsedData['device_id'].toString();
+        } else if (qrData.isNotEmpty) {
+          // QR kod direkt serial number olabilir
+          serialNumber = qrData;
+        }
+        
+        print('DEBUG: Looking for serial number: $serialNumber');
+        
+        // Serial number'dan device_id'yi bul
+        if (serialNumber != null && serialNumber.isNotEmpty) {
+          try {
+            final deviceResponse = await supabase
+                .from('devices')
+                .select('id, name, device_serial')
+                .eq('device_serial', serialNumber)
+                .eq('is_active', true)
+                .maybeSingle();
+            
+            if (deviceResponse != null) {
+              finalDeviceId = deviceResponse['id'];
+              print('DEBUG: Found device: ${deviceResponse['name']} with ID: $finalDeviceId');
+            } else {
+              print('DEBUG: Serial number not found in devices table, using default device_id: 1');
+            }
+          } catch (e) {
+            print('DEBUG: Error looking up device: $e, using default device_id: 1');
+          }
+        }
+        
+        print('DEBUG: Final device_id: $finalDeviceId');
+
         final response = await supabase.from('card_readings').insert({
           'card_no': qrData,
-          'status': 'authorized',
-          'access_granted': true,
+          'access_status': 'izin_verildi',
           'employee_id': employeeId, // Null olabilir, admin için
           'employee_name': employeeName,
-          'device_id': deviceId ?? parsedData['device_id'] ?? 1,
-          'device_name': 'Mobile App',
-          'device_location': location ?? parsedData['location'] ?? 'Ana Giriş',
+          'device_id': finalDeviceId,
+          'access_time': DateTime.now().toIso8601String(),
           'raw_data': type,
           'project_id': 1,
         }).select();

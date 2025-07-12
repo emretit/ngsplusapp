@@ -8,6 +8,10 @@ class AppTheme {
   static const Color tabBarBackground = Color(0xFFF5F5F5);
   static const Color inactiveGray = Color(0xFF6B6B6B);
   static const Color darkBackground = Color(0xFF121212);
+  
+  // Eksik olan özellikler
+  static const Color darkSurface = Color(0xFF1E1E1E);
+  static const Color primaryColor = primaryBurgundy;
 
   // Light Theme
   static ThemeData lightTheme = ThemeData(

@@ -65,7 +65,43 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
+          : Consumer<AttendanceProvider>(
+              builder: (context, attendanceProvider, child) {
+                if (attendanceProvider.errorMessage != null) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 64,
+                          color: Colors.red[300],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Hata',
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            attendanceProvider.errorMessage!,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        ElevatedButton(
+                          onPressed: _loadData,
+                          child: const Text('Tekrar Dene'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                
+                return Column(
               children: [
                 // Filtre çipleri
                 if (_selectedDate != null || _selectedDevice != null)
@@ -100,22 +136,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       final records = _getFilteredRecords();
                       
                       if (records.isEmpty) {
-                        return const Center(
-                          child: Text('Kayıt bulunamadı'),
+                        return RefreshIndicator(
+                          onRefresh: _loadData,
+                          child: const Center(
+                            child: Text('Kayıt bulunamadı'),
+                          ),
                         );
                       }
 
-                      return ListView.builder(
-                        itemCount: records.length,
-                        itemBuilder: (context, index) {
-                          final record = records[index];
-                          return _buildAttendanceCard(record);
-                        },
+                      return RefreshIndicator(
+                        onRefresh: _loadData,
+                        child: ListView.builder(
+                          itemCount: records.length,
+                          itemBuilder: (context, index) {
+                            final record = records[index];
+                            return _buildAttendanceCard(record);
+                          },
+                        ),
                       );
                     },
                   ),
                 ),
               ],
+            );
+              },
             ),
     );
   }

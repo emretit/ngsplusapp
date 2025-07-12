@@ -26,6 +26,7 @@ class AttendanceProvider extends ChangeNotifier {
   Future<void> loadAttendanceRecords() async {
     try {
       _isLoading = true;
+      _errorMessage = null;
       notifyListeners();
 
       final currentUser = _authProvider?.currentUser;
@@ -45,54 +46,86 @@ class AttendanceProvider extends ChangeNotifier {
         final employeeId = int.parse(currentUser.id);
         print('DEBUG: Looking for employee_id = $employeeId');
         
-        // Doğrudan veritabanında filtreleme yap - daha verimli
-        final filteredResponse = await supabase
-            .from('card_readings')
-            .select('''
-              *,
-              devices!card_readings_device_id_fkey (
-                id,
-                name,
-                location,
-                device_location
-              )
-            ''')
-            .eq('employee_id', employeeId)  // Doğrudan veritabanında filtrele
-            .order('access_time', ascending: false)
-            .limit(100);
+        try {
+          // Önce basit bir sorgu ile test et
+          final simpleResponse = await supabase
+              .from('card_readings')
+              .select('*')
+              .eq('employee_id', employeeId)
+              .order('access_time', ascending: false)
+              .limit(10);
 
-        print('DEBUG: Filtered to ${filteredResponse.length} records for employee_id: $employeeId');
+          print('DEBUG: Simple query returned ${simpleResponse.length} records');
 
-        _attendanceRecords = filteredResponse
-            .map((record) {
-              // Devices tablosundan kapı bilgisini al
-              final device = record['devices'];
-              final doorName = device != null 
-                  ? '${device['name']} (${device['device_location'] ?? device['location']})'
-                  : record['device_location'] ?? 'Bilinmeyen Kapı';
-              
-              // Card readings formatını Attendance formatına dönüştür
-              final formattedRecord = {
-                'id': record['id'],
-                'user_id': record['employee_id']?.toString(),
-                'employee_id': record['employee_id'],
-                'type': record['raw_data'] == 'check_in' ? 'check_in' : 'check_out',
-                'created_at': record['access_time'],
-                'access_time': record['access_time'],
-                'door_name': doorName,
-                'device_location': record['device_location'],
-                'employee_name': record['employee_name'],
-                'status': record['status'],
-                'qr_data': record['card_no'], // QR kod verisini ekle
-              };
-              return Attendance.fromJson(formattedRecord);
-            })
-            .take(50) // Son 50 kaydı al
-            .toList();
+          if (simpleResponse.isNotEmpty) {
+            print('DEBUG: First record: ${simpleResponse[0]}');
             
-        print('Parsed ${_attendanceRecords.length} attendance records');
+            // Şimdi devices ile join'li sorguyu dene
+            final filteredResponse = await supabase
+                .from('card_readings')
+                .select('''
+                  *,
+                  devices!card_readings_device_id_fkey (
+                    id,
+                    name,
+                    location,
+                    device_location
+                  )
+                ''')
+                .eq('employee_id', employeeId)
+                .order('access_time', ascending: false)
+                .limit(100);
+
+            print('DEBUG: Joined query returned ${filteredResponse.length} records');
+
+            _attendanceRecords = filteredResponse
+                .map((record) {
+                  try {
+                    // Devices tablosundan kapı bilgisini al
+                    final device = record['devices'];
+                    final doorName = device != null 
+                        ? '${device['name']} (${device['device_location'] ?? device['location']})'
+                        : record['device_location'] ?? 'Bilinmeyen Kapı';
+                    
+                    // Card readings formatını Attendance formatına dönüştür
+                    final formattedRecord = {
+                      'id': record['id'],
+                      'user_id': record['employee_id']?.toString(),
+                      'employee_id': record['employee_id'],
+                      'type': record['raw_data'] == 'check_in' ? 'check_in' : 'check_out',
+                      'created_at': record['access_time'],
+                      'access_time': record['access_time'],
+                      'door_name': doorName,
+                      'device_location': record['device_location'],
+                      'employee_name': record['employee_name'],
+                      'status': record['status'],
+                      'qr_data': record['card_no'], // QR kod verisini ekle
+                    };
+                    return Attendance.fromJson(formattedRecord);
+                  } catch (e) {
+                    print('DEBUG: Error parsing record: $e');
+                    print('DEBUG: Record data: $record');
+                    return null;
+                  }
+                })
+                .where((record) => record != null)
+                .cast<Attendance>()
+                .take(50)
+                .toList();
+          } else {
+            print('DEBUG: No records found for employee_id: $employeeId');
+            _attendanceRecords = [];
+          }
+        } catch (dbError) {
+          print('DEBUG: Database error: $dbError');
+          _attendanceRecords = [];
+          _errorMessage = 'Veritabanı hatası: $dbError';
+        }
+            
+        print('DEBUG: Parsed ${_attendanceRecords.length} attendance records');
       } else {
         // Adminler için direkt veritabanı sorgusu
+        print('DEBUG: Loading for admin user');
         final response = await supabase
             .from('pdks_records')
             .select()
@@ -109,6 +142,7 @@ class AttendanceProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     } catch (error) {
+      print('DEBUG: General error in loadAttendanceRecords: $error');
       _isLoading = false;
       _errorMessage = error.toString();
       notifyListeners();

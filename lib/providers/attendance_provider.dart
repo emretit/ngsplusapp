@@ -29,14 +29,24 @@ class AttendanceProvider extends ChangeNotifier {
       notifyListeners();
 
       final currentUser = _authProvider?.currentUser;
-      if (currentUser == null) return;
+      print('DEBUG: currentUser = ${currentUser?.id}, userType = ${currentUser?.userType}');
+      
+      if (currentUser == null) {
+        print('DEBUG: No current user, returning');
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
 
       // Çalışanlar için card_readings tablosundan veri çek (devices tablosuyla join)
       if (currentUser.userType == UserType.employee) {
-        print('Loading card_readings for employee ID: ${currentUser.id}');
+        print('DEBUG: Loading card_readings for employee ID: ${currentUser.id}');
         
-        // Client-side filtreleme için tüm card_readings'i al, sonra filtrele
-        final response = await supabase
+        final employeeId = int.parse(currentUser.id);
+        print('DEBUG: Looking for employee_id = $employeeId');
+        
+        // Doğrudan veritabanında filtreleme yap - daha verimli
+        final filteredResponse = await supabase
             .from('card_readings')
             .select('''
               *,
@@ -47,18 +57,11 @@ class AttendanceProvider extends ChangeNotifier {
                 device_location
               )
             ''')
+            .eq('employee_id', employeeId)  // Doğrudan veritabanında filtrele
             .order('access_time', ascending: false)
-            .limit(200); // Daha fazla kayıt al, sonra filtrele
+            .limit(100);
 
-        print('Found ${response.length} total card_readings records');
-
-        // Client-side filtreleme: sadece bu çalışanın kayıtları
-        final employeeId = int.parse(currentUser.id);
-        final filteredResponse = (response as List).where((record) => 
-          record['employee_id'] == employeeId
-        ).toList();
-
-        print('Filtered to ${filteredResponse.length} records for employee_id: $employeeId');
+        print('DEBUG: Filtered to ${filteredResponse.length} records for employee_id: $employeeId');
 
         _attendanceRecords = filteredResponse
             .map((record) {
@@ -124,7 +127,8 @@ class AttendanceProvider extends ChangeNotifier {
 
     if (currentUser.userType == UserType.employee) {
       // Çalışanlar için bugünkü card_readings kayıtlarını al (devices tablosuyla join)
-      final cardReadings = await supabase
+      final employeeId = int.parse(currentUser.id);
+      final filteredCardReadings = await supabase
           .from('card_readings')
           .select('''
             *,
@@ -135,15 +139,10 @@ class AttendanceProvider extends ChangeNotifier {
               device_location
             )
           ''')
+          .eq('employee_id', employeeId)  // Doğrudan veritabanında filtrele
           .gte('access_time', startOfDay.toIso8601String())
           .lt('access_time', endOfDay.toIso8601String())
           .order('access_time', ascending: true);
-
-      // Client-side filtreleme: sadece bu çalışanın kayıtları
-      final employeeId = int.parse(currentUser.id);
-      final filteredCardReadings = (cardReadings as List).where((record) => 
-        record['employee_id'] == employeeId
-      ).toList();
 
       response = filteredCardReadings.map((record) {
         // Devices tablosundan kapı bilgisini al

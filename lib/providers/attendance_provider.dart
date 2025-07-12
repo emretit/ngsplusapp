@@ -3,6 +3,7 @@ import '../config/supabase_config.dart';
 import '../models/attendance.dart';
 import '../models/qr_code_model.dart';
 import 'auth_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AttendanceProvider extends ChangeNotifier {
   List<Attendance> _attendanceRecords = [];
@@ -47,6 +48,18 @@ class AttendanceProvider extends ChangeNotifier {
         print('DEBUG: Looking for employee_id = $employeeId');
         
         try {
+          // Debug: Employee ID'sini kontrol et
+          print('DEBUG: Searching for employee_id = $employeeId in card_readings table');
+          
+          // Test: Employee'ın gerçekten var olup olmadığını kontrol et
+          final employeeCheck = await supabase
+              .from('employees')
+              .select('id, email, first_name, last_name')
+              .eq('id', employeeId)
+              .maybeSingle();
+          
+          print('DEBUG: Employee check result: $employeeCheck');
+          
           // Önce basit bir sorgu ile test et
           final simpleResponse = await supabase
               .from('card_readings')
@@ -85,22 +98,33 @@ class AttendanceProvider extends ChangeNotifier {
                     final device = record['devices'];
                     final doorName = device != null 
                         ? '${device['name']} (${device['device_location'] ?? device['location']})'
-                        : record['device_location'] ?? 'Bilinmeyen Kapı';
+                        : 'Bilinmeyen Kapı';
+                    
+                    // raw_data'dan giriş/çıkış tipini belirle
+                    String attendanceType = 'check_in';
+                    if (record['raw_data'] != null && record['raw_data'] is String) {
+                      final rawData = record['raw_data'] as String;
+                      if (rawData.toLowerCase().contains('check_out') || 
+                          rawData.toLowerCase().contains('çıkış')) {
+                        attendanceType = 'check_out';
+                      }
+                    }
                     
                     // Card readings formatını Attendance formatına dönüştür
                     final formattedRecord = {
-                      'id': record['id'],
-                      'user_id': record['employee_id']?.toString(),
-                      'employee_id': record['employee_id'],
-                      'type': record['raw_data'] == 'check_in' ? 'check_in' : 'check_out',
-                      'created_at': record['access_time'],
-                      'access_time': record['access_time'],
+                      'id': record['id']?.toString() ?? '',
+                      'user_id': record['employee_id']?.toString() ?? '',
+                      'type': attendanceType,
+                      'created_at': record['access_time']?.toString() ?? DateTime.now().toIso8601String(),
                       'door_name': doorName,
-                      'device_location': record['device_location'],
-                      'employee_name': record['employee_name'],
-                      'status': record['status'],
                       'qr_data': record['card_no'], // QR kod verisini ekle
+                      // Ek bilgiler
+                      'employee_name': record['employee_name'],
+                      'device_id': record['device_id'],
+                      'access_status': record['access_status'],
                     };
+                    
+                    print('DEBUG: Formatted record: $formattedRecord');
                     return Attendance.fromJson(formattedRecord);
                   } catch (e) {
                     print('DEBUG: Error parsing record: $e');
@@ -183,20 +207,29 @@ class AttendanceProvider extends ChangeNotifier {
         final device = record['devices'];
         final doorName = device != null 
             ? '${device['name']} (${device['device_location'] ?? device['location']})'
-            : record['device_location'] ?? 'Bilinmeyen Kapı';
+            : 'Bilinmeyen Kapı';
+            
+        // raw_data'dan giriş/çıkış tipini belirle
+        String attendanceType = 'check_in';
+        if (record['raw_data'] != null && record['raw_data'] is String) {
+          final rawData = record['raw_data'] as String;
+          if (rawData.toLowerCase().contains('check_out') || 
+              rawData.toLowerCase().contains('çıkış')) {
+            attendanceType = 'check_out';
+          }
+        }
             
         return {
-          'id': record['id'],
-          'user_id': record['employee_id']?.toString(),
-          'employee_id': record['employee_id'],
-          'type': record['raw_data'] == 'check_in' ? 'check_in' : 'check_out',
-          'created_at': record['access_time'],
-          'access_time': record['access_time'],
+          'id': record['id']?.toString() ?? '',
+          'user_id': record['employee_id']?.toString() ?? '',
+          'type': attendanceType,
+          'created_at': record['access_time']?.toString() ?? DateTime.now().toIso8601String(),
           'door_name': doorName,
-          'device_location': record['device_location'],
-          'employee_name': record['employee_name'],
-          'status': record['status'],
           'qr_data': record['card_no'], // QR kod verisini ekle
+          // Ek bilgiler
+          'employee_name': record['employee_name'],
+          'device_id': record['device_id'],
+          'access_status': record['access_status'],
         };
       }).toList();
     } else {

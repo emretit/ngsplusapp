@@ -169,39 +169,19 @@ class _QRScanScreenState extends State<QRScanScreen> with TickerProviderStateMix
           right: 16,
           child: Column(
             children: [
-              FloatingActionButton(
-                mini: true,
-                heroTag: "camera",
-                onPressed: () => cameraController.switchCamera(),
-                child: ValueListenableBuilder(
-                  valueListenable: cameraController.cameraFacingState,
-                  builder: (context, state, child) {
-                    switch (state) {
-                      case CameraFacing.front:
-                        return const Icon(Icons.camera_front);
-                      case CameraFacing.back:
-                        return const Icon(Icons.camera_rear);
-                    }
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-              FloatingActionButton(
-                mini: true,
-                heroTag: "flash",
-                onPressed: () => cameraController.toggleTorch(),
-                child: ValueListenableBuilder(
-                  valueListenable: cameraController.torchState,
-                  builder: (context, state, child) {
-                    switch (state) {
-                      case TorchState.off:
-                        return const Icon(Icons.flash_off);
-                      case TorchState.on:
-                        return const Icon(Icons.flash_on);
-                    }
-                  },
-                ),
-              ),
+                             FloatingActionButton(
+                 mini: true,
+                 heroTag: "camera",
+                 onPressed: () => cameraController.switchCamera(),
+                 child: const Icon(Icons.flip_camera_android),
+               ),
+               const SizedBox(height: 8),
+               FloatingActionButton(
+                 mini: true,
+                 heroTag: "flash",
+                 onPressed: () => cameraController.toggleTorch(),
+                 child: const Icon(Icons.flash_on),
+               ),
             ],
           ),
         ),
